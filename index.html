@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#fdf7ea">
 <title>Угадай ноту</title>
+
+<!-- Аналитика GoatCounter -->
+<script data-goatcounter="https://natadear.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
+
 <style>
   :root{
     --ink:#22364a;
@@ -436,9 +441,6 @@
     o2.stop(t + duration + 0.05);
   }
 
-  /* Подзвучка голосом — ТОЛЬКО на "Ученике" в базовом режиме
-     (level === 1 и !hardMode). Во всех остальных случаях —
-     просто звук ноты. */
   function voiceEnabled(){
     return level === 1 && !hardMode && soundOn;
   }
@@ -680,8 +682,6 @@
     hardBtn.textContent = hardMode ? '🧊 Упростить' : '🔥 Усложнить';
     updateHint();
 
-    // При включении "Усложнить" — сразу обрываем текущую речь,
-    // чтобы голос не «догонял» в новой логике без подзвучки.
     if(hardMode && window.speechSynthesis){
       try{ window.speechSynthesis.cancel(); }catch(e){}
     }
@@ -821,7 +821,6 @@
       scoreEl.textContent = score;
       speakThenTone(correctName, NOTES[currentNoteIdx].freq, 1.2);
       flashNote(el, 500);
-      // Если голос выключен (усложнённый режим), не нужно ждать 1,4 с
       var wait = voiceEnabled() ? (VOICE_TO_TONE_DELAY + 900) : 900;
       setTimeout(advanceRound, wait);
     } else {
