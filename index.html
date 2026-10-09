@@ -360,7 +360,7 @@
 
   /* Пауза между названием (голосом) и звуком ноты.
      0,7 с — голос успевает договорить короткое слово. */
-  var VOICE_TO_TONE_DELAY = 700;
+  var VOICE_TO_TONE_DELAY = 1400;
 
   var svg        = document.getElementById('staff');
   var notesLayer = document.getElementById('notesLayer');
@@ -470,7 +470,7 @@
 
       var u = new SpeechSynthesisUtterance(name);
       u.lang   = 'ru-RU';
-      u.rate   = 1.0;
+      u.rate   = 0.85;
       u.pitch  = 1.15;
       u.volume = 0.95;
 
