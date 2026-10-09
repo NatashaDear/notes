@@ -357,9 +357,6 @@
   var XS    = [150, 220, 290, 360, 430, 500, 570, 640];
 
   var TOTAL_ROUNDS = 30;
-
-  /* Пауза между названием (голосом) и звуком ноты.
-     0,7 с — голос успевает договорить короткое слово. */
   var VOICE_TO_TONE_DELAY = 1400;
 
   var svg        = document.getElementById('staff');
@@ -439,19 +436,15 @@
     o2.stop(t + duration + 0.05);
   }
 
-  /* Сразу играет тон и через VOICE_TO_TONE_DELAY ничего не делает —
-     эта функция для случая, когда звук должен идти ПЕРВЫМ. */
-  function playToneWithVoiceAfter(freq, name, duration){
-    playTone(freq, duration || 0.9);
-    if(level === 1 && soundOn){
-      setTimeout(function(){ speakNoteName(name); }, VOICE_TO_TONE_DELAY);
-    }
+  /* Подзвучка голосом — ТОЛЬКО на "Ученике" в базовом режиме
+     (level === 1 и !hardMode). Во всех остальных случаях —
+     просто звук ноты. */
+  function voiceEnabled(){
+    return level === 1 && !hardMode && soundOn;
   }
 
-  /* Голос ПЕРВЫМ, звук — через VOICE_TO_TONE_DELAY.
-     Используется в начале раунда и при клике по нотам "Ученика". */
   function speakThenTone(name, freq, duration){
-    if(level === 1 && soundOn){
+    if(voiceEnabled()){
       speakNoteName(name);
       setTimeout(function(){ playTone(freq, duration || 1.2); }, VOICE_TO_TONE_DELAY);
     } else {
@@ -462,7 +455,7 @@
   /* ================= ГОЛОС ================= */
   var voiceReady = false;
   function speakNoteName(name){
-    if(level !== 1 || !soundOn) return;
+    if(!voiceEnabled()) return;
     if(!window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') return;
 
     try{
@@ -634,7 +627,6 @@
       el.addEventListener('click', function(ev){
         ev.stopPropagation();
         if(gameOver) return;
-        // На "Ученике" — сначала голос, потом звук. На других — просто звук.
         speakThenTone(NOTES[noteIdx].name, NOTES[noteIdx].freq, 1.2);
         flashNote(el, 300);
       });
@@ -671,11 +663,10 @@
         ? '👆 Коснись стана и, не отпуская, выбери нужную высоту по слуху. Отпусти — нота встанет.'
         : '👆 Наведи мышку на нужное место и кликни. Пунктирная линия снизу — место для До первой октавы.';
     } else if(level === 1){
-      var base = '👆 Нажми на любую ноту — сначала услышишь название голосом, потом звук. Оранжевая — та, которую надо угадать.';
       if(hardMode){
-        hintEl.textContent = base + ' Названия внизу перемешиваются каждый раз!';
+        hintEl.textContent = '👆 Нажми на ноту — услышишь её звук. Оранжевая — та, которую надо угадать. Голос-подсказка выключен, названия внизу перемешиваются каждый раз!';
       } else {
-        hintEl.textContent = base + ' Названия внизу закреплены на всю партию.';
+        hintEl.textContent = '👆 Нажми на любую ноту — сначала услышишь название голосом, потом звук. Оранжевая — та, которую надо угадать. Названия внизу закреплены на всю партию.';
       }
     } else {
       hintEl.textContent = '👆 Нажми на ноту — услышишь её звук. Оранжевая — та, которую надо угадать.';
@@ -688,6 +679,13 @@
     hardBtn.classList.toggle('active', hardMode);
     hardBtn.textContent = hardMode ? '🧊 Упростить' : '🔥 Усложнить';
     updateHint();
+
+    // При включении "Усложнить" — сразу обрываем текущую речь,
+    // чтобы голос не «догонял» в новой логике без подзвучки.
+    if(hardMode && window.speechSynthesis){
+      try{ window.speechSynthesis.cancel(); }catch(e){}
+    }
+
     if(hardMode && (level === 1 || level === 2) && !locked && !gameOver && !scalePlaying){
       buildAnswers();
     }
@@ -794,8 +792,6 @@
 
     locked = false;
     if(!scalePlaying){
-      // На "Ученике" — сначала голос называет ноту, потом звучит сама нота.
-      // На остальных уровнях — просто звук.
       speakThenTone(
         NOTES[currentNoteIdx].name,
         NOTES[currentNoteIdx].freq,
@@ -823,11 +819,11 @@
       btn.classList.add('correct');
       score++;
       scoreEl.textContent = score;
-      // Правильный ответ: сначала голос "молодец" — называет ту же ноту,
-      // потом звук её же — закрепление.
       speakThenTone(correctName, NOTES[currentNoteIdx].freq, 1.2);
       flashNote(el, 500);
-      setTimeout(advanceRound, VOICE_TO_TONE_DELAY + 900);
+      // Если голос выключен (усложнённый режим), не нужно ждать 1,4 с
+      var wait = voiceEnabled() ? (VOICE_TO_TONE_DELAY + 900) : 900;
+      setTimeout(advanceRound, wait);
     } else {
       locked = true;
       btn.classList.add('wrong');
@@ -836,11 +832,11 @@
         if(b.textContent === correctName) b.classList.add('correct');
       });
       setTimeout(function(){
-        // При ошибке показываем и озвучиваем правильную ноту.
         speakThenTone(correctName, NOTES[currentNoteIdx].freq, 1.2);
         flashNote(el, 500);
       }, 320);
-      setTimeout(beginRound, 320 + VOICE_TO_TONE_DELAY + 1200);
+      var wait2 = voiceEnabled() ? (320 + VOICE_TO_TONE_DELAY + 1200) : (320 + 1200);
+      setTimeout(beginRound, wait2);
     }
   }
 
