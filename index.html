@@ -42,6 +42,7 @@
   }
   h1{margin:0;font-size:clamp(17px,3vw,26px);letter-spacing:.3px}
   .score{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 
   .levels{
     display:flex;background:#fff;border-radius:999px;padding:4px;
@@ -80,11 +81,19 @@
     font-size:clamp(12px,1.8vw,15px);font-weight:800;
     color:var(--ink);cursor:pointer;
     box-shadow:0 3px 0 rgba(34,54,74,.13);
-    transition:transform .1s,box-shadow .1s,opacity .2s;
+    transition:transform .1s,box-shadow .1s,opacity .2s,background .2s,color .2s;
     display:inline-flex;align-items:center;gap:6px;
   }
   .text-btn:active:not(:disabled){transform:translateY(2px);box-shadow:0 1px 0 rgba(34,54,74,.13)}
   .text-btn:disabled{opacity:.55;cursor:default}
+  .text-btn.hide{display:none}
+
+  .text-btn.active{
+    background:var(--hi);
+    color:#fff;
+    box-shadow:0 3px 0 #cc5e00;
+  }
+  .text-btn.active:active{box-shadow:0 1px 0 #cc5e00}
 
   .task{
     width:100%;max-width:860px;
@@ -116,13 +125,7 @@
   svg#staff.clickable{cursor:crosshair; touch-action:none;}
 
   .staff-line{stroke:#3b4a5a;stroke-width:2.4;stroke-linecap:round}
-
-  .ledger{
-    stroke:#3b4a5a;
-    stroke-width:4;
-    stroke-linecap:round;
-  }
-
+  .ledger{stroke:#3b4a5a;stroke-width:4;stroke-linecap:round}
   .stem{stroke:#3b4a5a;stroke-width:3;stroke-linecap:round}
   .head{fill:#3b4a5a}
   .clef{
@@ -198,7 +201,6 @@
   }
   .hint.hide{display:none}
 
-  /* ---------- Подпись авторов ---------- */
   .credits{
     width:100%;max-width:860px;
     text-align:center;
@@ -282,7 +284,10 @@
     </div>
   </div>
   <div class="top-row">
-    <button class="text-btn" id="scaleBtn">▶ Послушать гамму</button>
+    <div class="toolbar">
+      <button class="text-btn" id="scaleBtn">▶ Послушать гамму</button>
+      <button class="text-btn" id="hardBtn">🔥 Усложнить</button>
+    </div>
     <div class="score">
       <div class="pill">📝 <span class="val" id="progress">1/30</span></div>
       <div class="pill">⭐ <span class="val" id="score">0</span></div>
@@ -312,7 +317,7 @@
 
 <div class="answers" id="answers"></div>
 
-<p class="hint" id="hint">👆 Нажми на любую ноту — услышишь её звук. Оранжевая — та, которую надо угадать.</p>
+<p class="hint" id="hint">👆 Нажми на любую ноту — услышишь её название и звук. Оранжевая — та, которую надо угадать.</p>
 
 <footer class="credits">
   <p class="school">Сделано для ДМШ №13 им. И.О. Дунаевского (Екатеринбург)</p>
@@ -353,6 +358,10 @@
 
   var TOTAL_ROUNDS = 30;
 
+  /* Пауза между названием (голосом) и звуком ноты.
+     0,7 с — голос успевает договорить короткое слово. */
+  var VOICE_TO_TONE_DELAY = 700;
+
   var svg        = document.getElementById('staff');
   var notesLayer = document.getElementById('notesLayer');
   var answersEl  = document.getElementById('answers');
@@ -360,6 +369,7 @@
   var progressEl = document.getElementById('progress');
   var soundBtn   = document.getElementById('soundBtn');
   var scaleBtn   = document.getElementById('scaleBtn');
+  var hardBtn    = document.getElementById('hardBtn');
   var levelsEl   = document.getElementById('levels');
   var taskEl     = document.getElementById('task');
   var taskNoteEl = document.getElementById('taskNote');
@@ -372,6 +382,7 @@
   var nextLevelBtn = document.getElementById('nextLevelBtn');
 
   var level = 1;
+  var hardMode = false;
   var noteEls = [];
   var roundPool = [];
   var roundIdx = 0;
@@ -427,7 +438,72 @@
     o1.stop(t + duration + 0.05);
     o2.stop(t + duration + 0.05);
   }
-  document.addEventListener('pointerdown', ensureAudio);
+
+  /* Сразу играет тон и через VOICE_TO_TONE_DELAY ничего не делает —
+     эта функция для случая, когда звук должен идти ПЕРВЫМ. */
+  function playToneWithVoiceAfter(freq, name, duration){
+    playTone(freq, duration || 0.9);
+    if(level === 1 && soundOn){
+      setTimeout(function(){ speakNoteName(name); }, VOICE_TO_TONE_DELAY);
+    }
+  }
+
+  /* Голос ПЕРВЫМ, звук — через VOICE_TO_TONE_DELAY.
+     Используется в начале раунда и при клике по нотам "Ученика". */
+  function speakThenTone(name, freq, duration){
+    if(level === 1 && soundOn){
+      speakNoteName(name);
+      setTimeout(function(){ playTone(freq, duration || 1.2); }, VOICE_TO_TONE_DELAY);
+    } else {
+      playTone(freq, duration || 1.2);
+    }
+  }
+
+  /* ================= ГОЛОС ================= */
+  var voiceReady = false;
+  function speakNoteName(name){
+    if(level !== 1 || !soundOn) return;
+    if(!window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') return;
+
+    try{
+      window.speechSynthesis.cancel();
+
+      var u = new SpeechSynthesisUtterance(name);
+      u.lang   = 'ru-RU';
+      u.rate   = 1.0;
+      u.pitch  = 1.15;
+      u.volume = 0.95;
+
+      var voices = window.speechSynthesis.getVoices() || [];
+      for(var i = 0; i < voices.length; i++){
+        if(voices[i].lang && voices[i].lang.toLowerCase().indexOf('ru') === 0){
+          u.voice = voices[i];
+          break;
+        }
+      }
+
+      window.speechSynthesis.speak(u);
+      voiceReady = true;
+    } catch(e){}
+  }
+
+  function warmupVoice(){
+    if(voiceReady || !window.speechSynthesis) return;
+    try{
+      var u = new SpeechSynthesisUtterance('');
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+      voiceReady = true;
+    } catch(e){}
+  }
+
+  document.addEventListener('pointerdown', function(){
+    ensureAudio();
+    warmupVoice();
+  });
+  if(window.speechSynthesis){
+    window.speechSynthesis.onvoiceschanged = function(){};
+  }
 
   /* ================= УТИЛИТЫ ================= */
   function shuffle(a){
@@ -486,7 +562,6 @@
       g.appendChild(halo);
     }
 
-    /* Добавочная линейка у До первой октавы — короткая, аккуратная */
     if(isLowC){
       var l = document.createElementNS(SVGNS, 'line');
       l.setAttribute('class', 'ledger');
@@ -559,7 +634,8 @@
       el.addEventListener('click', function(ev){
         ev.stopPropagation();
         if(gameOver) return;
-        playTone(NOTES[noteIdx].freq);
+        // На "Ученике" — сначала голос, потом звук. На других — просто звук.
+        speakThenTone(NOTES[noteIdx].name, NOTES[noteIdx].freq, 1.2);
         flashNote(el, 300);
       });
       notesLayer.appendChild(el);
@@ -580,6 +656,46 @@
       answersEl.appendChild(b);
     });
   }
+
+  function resetAnswerStates(){
+    Array.prototype.forEach.call(answersEl.children, function(b){
+      b.classList.remove('correct','wrong');
+      b.disabled = false;
+    });
+  }
+
+  /* ================= ПОДСКАЗКА ================= */
+  function updateHint(){
+    if(level === 3){
+      hintEl.textContent = isTouchDevice
+        ? '👆 Коснись стана и, не отпуская, выбери нужную высоту по слуху. Отпусти — нота встанет.'
+        : '👆 Наведи мышку на нужное место и кликни. Пунктирная линия снизу — место для До первой октавы.';
+    } else if(level === 1){
+      var base = '👆 Нажми на любую ноту — сначала услышишь название голосом, потом звук. Оранжевая — та, которую надо угадать.';
+      if(hardMode){
+        hintEl.textContent = base + ' Названия внизу перемешиваются каждый раз!';
+      } else {
+        hintEl.textContent = base + ' Названия внизу закреплены на всю партию.';
+      }
+    } else {
+      hintEl.textContent = '👆 Нажми на ноту — услышишь её звук. Оранжевая — та, которую надо угадать.';
+    }
+  }
+
+  /* ================= КНОПКА "УСЛОЖНИТЬ" ================= */
+  function setHardMode(on){
+    hardMode = on;
+    hardBtn.classList.toggle('active', hardMode);
+    hardBtn.textContent = hardMode ? '🧊 Упростить' : '🔥 Усложнить';
+    updateHint();
+    if(hardMode && (level === 1 || level === 2) && !locked && !gameOver && !scalePlaying){
+      buildAnswers();
+    }
+  }
+
+  hardBtn.addEventListener('click', function(){
+    setHardMode(!hardMode);
+  });
 
   /* ================= ГАММА ================= */
   function playScale(){
@@ -662,22 +778,29 @@
     }
 
     if(level === 3){
-      // Никаких подсказок про октаву — только название ноты.
-      // Ребёнок слышит звук и сам определяет, где её поставить.
       taskNoteEl.textContent = NOTES[currentNoteIdx].name;
-      hintEl.textContent = isTouchDevice
-        ? '👆 Коснись стана и, не отпуская, выбери нужную высоту по слуху. Отпусти — нота встанет.'
-        : '👆 Наведи мышку на нужное место и кликни. Пунктирная линия снизу — место для До первой октавы.';
     } else {
-      buildAnswers();
+      if(hardMode){
+        buildAnswers();
+      } else {
+        resetAnswerStates();
+      }
       if(noteEls[currentNoteIdx]){
         noteEls[currentNoteIdx].classList.add('active');
       }
     }
 
+    updateHint();
+
     locked = false;
     if(!scalePlaying){
-      playTone(NOTES[currentNoteIdx].freq);
+      // На "Ученике" — сначала голос называет ноту, потом звучит сама нота.
+      // На остальных уровнях — просто звук.
+      speakThenTone(
+        NOTES[currentNoteIdx].name,
+        NOTES[currentNoteIdx].freq,
+        1.2
+      );
     }
   }
 
@@ -700,9 +823,11 @@
       btn.classList.add('correct');
       score++;
       scoreEl.textContent = score;
-      playTone(NOTES[currentNoteIdx].freq);
+      // Правильный ответ: сначала голос "молодец" — называет ту же ноту,
+      // потом звук её же — закрепление.
+      speakThenTone(correctName, NOTES[currentNoteIdx].freq, 1.2);
       flashNote(el, 500);
-      setTimeout(advanceRound, 1100);
+      setTimeout(advanceRound, VOICE_TO_TONE_DELAY + 900);
     } else {
       locked = true;
       btn.classList.add('wrong');
@@ -711,10 +836,11 @@
         if(b.textContent === correctName) b.classList.add('correct');
       });
       setTimeout(function(){
-        playTone(NOTES[currentNoteIdx].freq);
+        // При ошибке показываем и озвучиваем правильную ноту.
+        speakThenTone(correctName, NOTES[currentNoteIdx].freq, 1.2);
         flashNote(el, 500);
       }, 320);
-      setTimeout(beginRound, 1900);
+      setTimeout(beginRound, 320 + VOICE_TO_TONE_DELAY + 1200);
     }
   }
 
@@ -770,7 +896,6 @@
     var userNote = makeNoteElement(clickedIdx, x, { extraClass: 'user-note' });
     notesLayer.appendChild(userNote);
 
-    // Строгая проверка по индексу ноты: До¹ и До² — разные ответы
     var isCorrect = (clickedIdx === currentNoteIdx);
 
     playTone(NOTES[clickedIdx].freq, 0.9);
@@ -794,7 +919,6 @@
     }, 350);
   }
 
-  /* --- мышь --- */
   svg.addEventListener('mousemove', function(evt){
     if(level !== 3 || locked || gameOver || scalePlaying) return;
     if(isTouchDevice) return;
@@ -812,7 +936,6 @@
     commitGhost();
   });
 
-  /* --- касания --- */
   svg.addEventListener('touchstart', function(evt){
     if(level !== 3 || locked || gameOver || scalePlaying) return;
     if(currentNoteIdx < 0) return;
@@ -852,6 +975,7 @@
     for(var i = 0; i < noteEls.length; i++){
       if(noteEls[i]) noteEls[i].classList.remove('active','playing');
     }
+    if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
 
     var t, st;
     var max = TOTAL_ROUNDS;
@@ -889,13 +1013,16 @@
     if(level === 3){
       taskEl.classList.add('show');
       answersEl.classList.add('hide');
+      hardBtn.classList.add('hide');
     } else {
       taskEl.classList.remove('show');
       answersEl.classList.remove('hide');
+      hardBtn.classList.remove('hide');
     }
   }
 
   function startGame(){
+    if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
     overlay.classList.remove('show');
     score = 0;
     roundIdx = 0;
@@ -908,6 +1035,7 @@
     applyLevelUI();
     buildStaff();
     buildAnswers();
+    updateHint();
 
     currentNoteIdx = roundPool[0];
     updateProgress();
@@ -921,9 +1049,17 @@
     if(newLevel < 1 || newLevel > 3) return;
     if(newLevel === level && !gameOver) return;
     level = newLevel;
+
+    if(window.speechSynthesis){ try{ window.speechSynthesis.cancel(); }catch(e){} }
+
+    hardMode = false;
+    hardBtn.classList.remove('active');
+    hardBtn.textContent = '🔥 Усложнить';
+
     Array.prototype.forEach.call(levelsEl.children, function(tab){
       tab.classList.toggle('active', +tab.dataset.level === level);
     });
+
     startGame();
   }
 
@@ -934,7 +1070,11 @@
   soundBtn.addEventListener('click', function(){
     soundOn = !soundOn;
     soundBtn.textContent = soundOn ? '🔊' : '🔇';
-    if(soundOn) ensureAudio();
+    if(soundOn){
+      ensureAudio();
+    } else if(window.speechSynthesis){
+      try{ window.speechSynthesis.cancel(); }catch(e){}
+    }
   });
 
   startGame();
